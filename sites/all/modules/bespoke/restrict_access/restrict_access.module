@@ -1,0 +1,37 @@
+<?php
+
+// Implements hook_init()
+function restrict_access_init() {
+  $restrictions = restrict_access_restrictions();
+  global $user;
+  foreach ($restrictions as $path => $roles) {
+    // See if the current path matches any of the patterns provided.
+    if (drupal_match_path($_GET['q'], $path)) {
+      // It matches, check the current user has any of the required roles
+      $valid = FALSE;
+      foreach ($roles as $role) {
+        if (in_array($role, $user->roles)) {
+          $valid = TRUE;
+          break;
+        }
+      }
+
+      if (!$valid) {
+        drupal_access_denied();
+	//	module_invoke_all('exit');
+		exit();
+      }
+    }
+  }
+}
+
+function restrict_access_restrictions() {
+  // Obviously this data could come from anywhere (database, config file, etc.)
+  // This array will be keyed by path and contain an array of allowed roles for that path
+  return array(
+    'publications/csv_import' => array('Administrator','Publications Uploader'),
+    //'another-path/*' => array('editor', 'other_role'),
+  );
+}
+
+?>

@@ -1,0 +1,4 @@
+name = K-Int Sheffield University bespoke module
+description = Bespoke module
+package = K-Int
+core = 7.x

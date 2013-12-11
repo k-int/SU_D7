@@ -1,0 +1,124 @@
+<?php
+
+/*
+ * This module removes duplicates from exposed filters on Research, Software and Pulications pages
+ */
+ 
+ /*
+function shef_univ_views_pre_execute(&$view) {
+  // if ($view->name == 'research' && $view->current_display == 'research_page') {
+    $query = &$view->build_info['query'];
+    $change_with_distinct = 'node.nid AS nid';
+    $distinct = "DISTINCT node.nid AS nid";
+    $query = str_ireplace($change_with_distinct, $distinct, $query);
+
+    $view->build_info['count_query']=$view->build_info['query'];
+  // }
+}
+ 
+ */
+
+ 
+ 
+ /* Implements hook_filter_info(). */
+function shef_univ_filter_info() {
+
+  $filters['kill_empty'] = array(
+    'title' => t('Kill Empty Paragraphs'),
+    'description' => t('Remove paragraphs that contain only whitespace (including line breaks and &amp;nbsp;\'s) that are often inserted by editors using WYSIWYGs.'),
+    'process callback'  => '_shef_univ_kill_empty',
+    'tips callback' => '_shef_univ_kill_empty_tips',
+  );
+  return $filters;
+}
+
+/* Process callbacks, where the work is done. */
+function _shef_univ_kill_empty($text, $filter) {
+  // Remove all <p> tags containing only nbsp's, white space, or nothing.
+  // return preg_replace('/<p[^>]*>(&nbsp;|\s)*<\/p>/', '', $text);
+  return preg_replace('/<p[^>]*>(&nbsp;|\s)*<\/p>/', '', $text);
+}
+
+/* Tips for the content editor, if you want them. I usually take these out. */
+function _shef_univ_kill_empty_tips($filter, $format, $long = FALSE) {
+  if (!$long) {
+    // This string will be shown in the content add/edit form.
+    return t('Use one [enter] to create a new paragraph. More than one will be ignored.');
+  }
+  else {
+    // And this one on the "Filter Tips" page.
+    return t('To maintain consistancy in content display, empty paragraphs inserted by WYSIWYG editors will be removed.');
+  }
+}
+
+ 
+ 
+
+function shef_univ_form_alter(&$form, &$form_state){
+
+	global $user;
+// echo "USER ROLDE ID:".$user->uid;
+	// "Affiliate publishing options" on all Content Types should be visible only to Drupal admin ,
+	// Additionally "Affiliate publishing options" should be visible to regular users for News and Events Content Types
+ 
+	if($user->uid != 1 & ($form['#form_id'] == "homepage_feature_node_form" ||
+		$form['#form_id'] == "contact_page_node_form" ||
+		$form['#form_id'] == "page_node_form" ||
+		$form['#form_id'] == "person_node_form" ||
+		$form['#form_id'] == "publications_node_form" ||
+		$form['#form_id'] == "research_project_node_form" ||
+		$form['#form_id'] == "software_node_form" ) ) {
+		
+		$form['domain']['#access']= false; // hide "Affiliate publishing options" from Add/Edit node form
+	}
+}
+ 
+ 
+ 
+/**
+ * Implements HOOK_addthis_markup_options_alter().
+ *
+ * Don't forget to add the argument as a reference. You can alter the argument
+ * through this. Otherwise changes will not pass.
+ *
+ * A block will pass the #block argument to the options array. This is allows
+ * you to changed based on the block placement.
+ */ 
+function shef_univ_addthis_markup_options_alter(&$options) {
+	// If you have devel module enabled uncomment this to see the options
+	// variable.
+	//dpm($options, 'addthis markup options');
+
+	// var_dump($options['#display']['type']);
+	
+	// To apply this to the block implementation.
+	if (isset($options['#block']) && $options['#display']['type'] == 'addthis_basic_toolbox') {
+
+		// Change the var below to add other services.
+		// $displayed_services = 'twitter,google_plusone,facebook';
+		$displayed_services = ' facebook_like, tweet, google_plusone, linkedin_counter';
+		$options['#display']['settings']['share_services'] = $displayed_services;
+		$options['#display']['settings']['buttons_size'] = 'AddThis::CSS_16x16';
+
+	}
+}
+
+/* Redirect user to home page after login  */
+function shef_univ_user_login(&$edit, $account) {
+  drupal_goto('');
+}
+
+function shef_univ_views_pre_render(&$view){
+
+//	print("$view");
+	
+}
+
+/* wysiwyg ckeditor customization - font default font changed to  google font : Lato 
+function shef_univ_wysiwyg_editor_settings_alter(&$settings, $context) {
+  if ($context['profile']->editor == 'ckeditor') {
+	// var_dump($settings); 
+       // $settings['stylesCombo_stylesSet'] = 'my_styles:' . base_path() . drupal_get_path('module', 'shef_univ').'/wysiwyg_styles.js';
+  }
+}
+*/

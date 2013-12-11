@@ -1,0 +1,400 @@
+<?php
+//  publications_csv
+
+/**
+ * Implementation of hook_menu().
+ *
+ * @return An array of menu items.
+ */
+ 
+function publications_csv_install(){
+
+// mkdir ( string $pathname [, int $mode = 0777 [, bool $recursive = false [, resource $context ]]] );
+// $directory = file_default_scheme() . '://csv';
+	// file_prepare_directory($directory, FILE_CREATE_DIRECTORY | FILE_MODIFY_PERMISSIONS);
+}
+ 
+function publications_csv_menu() {
+	$items['publications/csv_import'] = array(
+            'title' => 'Publications CSV import',
+            'description' => 'CSV import and update',
+            'page callback' => '_publication_csv_import_page',
+            'page arguments' => array(0),
+            'type' => MENU_CALLBACK,
+            'access callback' => TRUE
+    );
+
+	return $items;
+}
+
+
+
+function _publication_csv_import_page($node){
+    return drupal_get_form('publication_csv_upload_form');   
+}
+
+
+function publication_csv_upload_form(){
+
+    $form['#attributes'] = array('enctype' => 'multipart/form-data');
+    $form['csvfile'] = array(
+    '#type' => 'file',
+    '#title' => t('Upload csv file'),
+    );
+    $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Upload'),
+    );
+    return $form;
+	
+}
+
+
+
+function publication_csv_upload_form_submit ($form_id, $form_values) {
+
+	module_load_include('module', 'taxonomy', 'taxonomy');
+	
+	file_put_contents("/home/kint/public_html/sites/default/files/csv/start.txt", "started");
+
+	$filefield = 'csvfile';
+	$savepath = 'public://csv';
+	$validators = array('file_validate_extensions' => array( 'csv' ));
+	$file = file_save_upload($filefield, $validators, $savepath);
+
+	// drupal_set_message( "File uploded: ".$file->filename);
+	$file_on_server = $file->destination;
+	$rows_total = 0;	// total numer of rows in CSV file
+
+	$rows_corrupted = 0; // wrong number of columns in row   or   row publication ID is not a numeric value
+	$rows_correct = 0; // wrong number of columns in row   or   row publication ID is not a numeric value
+	$rows_imported = 0; // rows processed into Database;
+	$rows_author_is_not_member = 0; // rows processed into Database;
+	$rows_unique_publications = 0; // rows processed into Database;
+	$rows_updated_publications = 0; // rows processed into Database;
+	$id_collection = array();
+	$id_collection_title = array();
+	$csv_import_log = "";
+
+	// Load taxonomy vocabulary. If vocabulary "Publication Types" does not exist create it.
+
+	$vocabulary_name = "Publication Types";
+	$vocabulary_machine_name = "publication_types";
+	$vocabulary_object = publications_csv_get_vocabulary_by_name($vocabulary_name);
+
+	/*
+	if(empty($vocabulary_object)){
+
+		$vocab = array(
+			'name' => $vocabulary_name,
+			'machine_name' => $vocabulary_machine_name,
+			'hierarchy' => "0",
+			'description' => "The type of publications, such as Journal article.",
+			'module' => "publications_csv",
+		);
+	  
+	  // svae vocabulary
+      taxonomy_save_vocabulary($vocab);
+		// load vocabulary
+		$vocabulary_object = publications_csv_get_vocabulary_by_name($vocabulary_name);
+
+	}
+	*/
+	
+	set_time_limit(1500); //25 minutes
+	ini_set('max_execution_time', 1500);
+	ini_set('auto_detect_line_endings', TRUE);
+	ini_set('embedded_newlines', TRUE);
+	
+	
+	// get all Person nodes ids
+	$allpersons_emails = db_query("SELECT  field_data_field_email_address.field_email_address_value FROM node LEFT JOIN field_data_field_email_address ON node.nid = field_data_field_email_address.entity_id where node.type='person'")->fetchCol();
+
+	// get vid and machine name of the "Publication Types" vocabulary
+	$vocabulary_object_vid = $vocabulary_object->vid;
+	$vocabulary_object_machine_name = $vocabulary_object->machine_name;
+		
+	// Open and process csv file 
+	if (($handle = fopen($file_on_server, "r")) !== FALSE) {
+
+		$labels = fgetcsv($handle, ",");
+
+
+		// process csv file
+		while (($data = fgetcsv($handle, ",")) !== FALSE) {
+
+			if(is_numeric($data[0])){
+				if(sizeof($data) == 93 ){
+												 
+								 
+					// Get all required data _date
+					$csv_field_id = $data[0]; 														// "ID"					
+					$csv_email = $data[3]; 															// "Email"
+					$csv_field_favourite = $data[9];												// "Favourite"
+					$csv_field_publication_type = $data[10]; 										// "Publication type"
+					$csv_field_reporting_date = $data[11]; 											// "Reporting date 1"
+					$csv_field_abstract = mb_convert_encoding($data[13], 'UTF-8');					// "Abstract"
+					$csv_field_authors = $data[16];													// "Authors"
+					$csv_field_doi = $data[20];														// "DOI"
+					$csv_field_editors_or_supervisors = $data[22];									// "Editors OR Supervisors"
+					if(empty($data[28])){
+					  $csv_field_issn = $data[23];													// "eISSN"	
+					} else{
+					  $csv_field_issn = $data[28];													// "ISSN"	
+					}
+					if(empty($data[29])){
+						
+					}
+					else{
+						$csv_field_issue = $data[29];													// "Issue"
+					}
+					$csv_field_journal_or_published_proce = $data[30];								// "Journal OR Published proceedings"
+					$csv_field_conference_place_country_l = mb_convert_encoding($data[33], 'UTF-8');// "Conference place OR Country OR Location OR Territory"
+					$csv_field_name_of_conference_present = mb_convert_encoding($data[35], 'UTF-8');// "Name of conference OR Presented at"
+					$csv_field_application_number_article = mb_convert_encoding($data[37], 'UTF-8');// "Application number OR Article number OR Chapter number OR Report number"
+					$csv_field_start_page = $data[39];												// "Pagination (start page)"
+					$csv_field_end_page = $data[40]; 												// "Pagination (end page)"
+					$csv_field_book_title_or_report_title = mb_convert_encoding($data[42], 'UTF-8');// "Book title OR Report title"
+					$csv_field_place_of_publication = mb_convert_encoding($data[46],  'UTF-8');		// "Place of publication"
+					$csv_field_publication_date = $data[47]; 										// "Date awarded OR Presented date OR Publication date"
+					$csv_field_publisher = $data[49];												// "Publisher"
+					$csv_field_publisher_url = $data[50]; 											// "Publisher URL"
+					$csv_field_awarded_date_or_conference = $data[52];								// "Awarded date OR Conference start date OR Start date"
+					$csv_field_thesis_type = $data[53];  											// "Thesis type"
+					$csv_title = mb_convert_encoding($data[54], 'UTF-8', 'UTF-8'); 					// "Title OR Title of entry"
+					$csv_field_sub_types = $data[55];												// "Sub types"
+					$csv_field_volume = $data[57];													// "Volume"
+					$csv_public_url = $data[67];													// "A shared, open access repository for the Universities of Leeds, Sheffield and York. public URL"
+					$csv_source = $data[70];													// "Source"
+					
+					//added later
+					$csv_field_number_of_pages = $data[41];											// "Pagination (page count)"
+					$csv_field_patent_number = $data[43];											// "Patent number"
+					$csv_field_patent_status = $data[44];											// "Patent status"
+					$csv_field_notes = $data[36];													// "Notes"
+					$csv_field_date_filed = $data[24];												// "Date submitted OR Filed date"
+					$csv_feild_date_awarded = $data[52];												// "Awarded date OR Conference start date OR Start date"
+					
+					
+					if(empty($data[91]) ){
+					$csv_field_canonical_journal_title = $data[30];
+				}
+				else{
+					$csv_field_canonical_journal_title = mb_convert_encoding($data[91], 'UTF-8');	// "Canonical journal title"
+				}
+					$person_found = false;
+					foreach ($allpersons_emails as $person){
+						if (strtolower(trim($person)) == strtolower(trim($csv_email))) $person_found = true; 
+					}
+
+					// Check if author of the publication exist as Drupal Person (Email from CSV file matches one of Person nodes) process the publication and insert to database
+					if($person_found){
+										
+						// get Person node
+						$query = new EntityFieldQuery();
+						$query->entityCondition('entity_type', 'node')
+						->entityCondition('bundle', 'person')
+				//		->propertyCondition('status', 1)
+						->fieldCondition('field_email_address', 'value', $csv_email, '=');
+						$result = $query->execute();
+					//	dsm($csv_email);
+					//	dsm($result);
+						// Find year of publication in publication date
+						$year = "";
+						if(!empty($csv_field_publication_date)){
+						
+							$date_array = preg_split('/[-\.\/ ]/', $csv_field_publication_date);
+							
+							if(isset($date_array[0]) && strlen($date_array[0]) == 4 && is_numeric($date_array[0])){ $year = $date_array[0]; }
+							else if(isset($date_array[1]) && strlen($date_array[1]) == 4 && is_numeric($date_array[1])) { $year = $date_array[1]; }
+							else if(isset($date_array[2]) && strlen($date_array[2]) == 4 && is_numeric($date_array[2])) { $year = $date_array[2]; }
+							else {$csv_import_log .="<br>".$csv_field_id." Wrong DATE format: '".$csv_field_publication_date."'. Date formats accepted: YYYY, YYYY-MM, YYYY-MM-DD, YYYY/MM/DD , DD/MM/YYYY";}
+							
+							$year = $year."-01-01 00:00:00"; // year of publications in Mysql Datetime format
+							
+						}
+						if(isset($result['node'])){
+						foreach($result['node'] as $res){
+						
+						
+						// Person node with this email exists , process publication into drupal DB  person_node_id
+						$person_node_id = $res->nid;
+					
+						
+						// Check if publication already exists in database
+					//	$tmp = db_query("SELECT entity_id FROM {field_data_field_publication_id} WHERE field_publication_id_value='".$csv_field_id."'")->fetchField();
+						if($publication_nid = db_query("SELECT entity_id FROM {field_data_field_publication_id} WHERE field_publication_id_value='".$csv_field_id."'")->fetchField()) {
+						//	$publication_nid = db_query("SELECT entity_id FROM {field_data_field_publication_id} WHERE field_publication_id_value='".$csv_field_id."'")->fetchField();
+							// Publication already exists in database - Load publication node
+							$node = node_load($publication_nid);
+						
+							unset( $node->field_publication_type['und'][0]); //remove publication type array - need to do this for the update to succeed.
+						
+							// Update people involved if there is at least one already specified
+							if(isset($node->field_people_involved['und'])){
+						
+									
+								// get current people involved into array
+								$temp_people_involved = array();
+								
+								foreach($node->field_people_involved['und'] as $person_involved ){
+									$temp_people_involved[]= $person_involved['target_id'];
+								}
+								
+								// add new person involved to array
+								$temp_people_involved[] = $person_node_id;
+								
+								//get rid of duplicates
+								$temp_people_involved = array_unique($temp_people_involved);
+								
+								// empty node -> people involved array
+								$node->field_people_involved['und'] = array();
+								
+								// populate node -> people involved array
+								foreach ($temp_people_involved as $person_node){
+									
+										$node->field_people_involved['und'][] = array('target_id' => $person_node);
+								}
+								
+								$node->title = $csv_title; // update title
+								
+							}
+						
+															
+							$rows_updated_publications++;	
+						}else{
+							array_push($id_collection, $csv_field_id); 
+							array_push($id_collection_title, $csv_field_book_title_or_report_title);
+							$rows_unique_publications++;
+							$node = new stdClass();
+							$node->type = 'publications';	
+							$node->title = $csv_title;
+							node_object_prepare($node);	
+							$node->field_people_involved['und'][0]['target_id'] = $person_node_id; //$publicationauthor->uid;
+				
+						}
+					}
+						// echo"<br>".$csv_field_id;//." csv_title ".$csv_title." ".substr($csv_field_abstract,1,10);
+						// drupal_set_message("user: ".$csv_email." csv_field_id: ".$csv_field_id." person_node_id: ".$person_node_id);
+						// get taxonomy term id or create if it does not exist
+						$term_array = taxonomy_get_term_by_name($csv_field_publication_type, $vocabulary_object_machine_name);
+						if($term_array == array()){
+							$term->name = $csv_field_publication_type;
+							$term->vid = $vocabulary_object_vid;
+							taxonomy_term_save($term); //save new term
+							$term_array = taxonomy_get_term_by_name($csv_field_publication_type, $vocabulary_object_machine_name); 
+						}
+						
+						//get the first index of the array
+						foreach ($term_array as $tid => $term_object)break;
+						
+						
+						$node->field_canonical_journal_title['und'][0]['value'] = $csv_field_canonical_journal_title;
+						// $node->field_abstract['und'][0]['value'] = str_replace('""','\"',$csv_field_abstract);
+						// if(!empty($csv_field_abstract)) drupal_set_message("abstract: ".$csv_title);
+						$node->field_abstract['und'][0]['value'] = $csv_field_abstract;  // remove single and double spaces from abstract string.
+						
+						$node->field_favourite['und'][0]['value'] = $csv_field_favourite;
+						$node->field_publication_type['und'][$tid] = (array)$term_object;//$term_id;
+						$node->field_reporting_date_['und'][0]['value'] =  $csv_field_reporting_date;  // Date
+						$node->field_authors['und'][0]['value'] = $csv_field_authors;
+						$node->field_publication_id['und'][0]['value'] =  $csv_field_id;
+						$node->field_doi['und'][0]['value'] =  $csv_field_doi;
+						$node->field_editors_or_supervisors['und'][0]['value'] =  $csv_field_editors_or_supervisors;
+						$node->field_issn['und'][0]['value'] =  $csv_field_issn;
+						$node->field_issue['und'][0]['value'] =  $csv_field_issue;
+						$node->field_journal_or_published_proce['und'][0]['value'] =  $csv_field_journal_or_published_proce;
+						$node->field_start_page['und'][0]['value'] =  $csv_field_start_page;
+						$node->field_end_page['und'][0]['value'] =  $csv_field_end_page;
+						
+						
+						
+						$node->field_conference_place_country_l['und'][0]['value'] =  $csv_field_conference_place_country_l;
+						$node->field_name_of_conference_present['und'][0]['value'] =  $csv_field_name_of_conference_present;
+						$node->field_application_number_article['und'][0]['value'] =  $csv_field_application_number_article;
+						$node->field_book_title_or_report_title['und'][0]['value'] =  $csv_field_book_title_or_report_title;
+						$node->field_place_of_publication['und'][0]['value'] =  $csv_field_place_of_publication;
+						if(!empty($year)) $node->field_publication_date['und'][0]['value'] =  $year;
+						
+						$node->field_publisher['und'][0]['value'] =  $csv_field_publisher;
+						$node->field_publisher_url['und'][0]['value'] =  $csv_field_publisher_url;
+						$node->field_awarded_date_or_conference['und'][0]['value'] =  $csv_field_awarded_date_or_conference;
+						$node->field_thesis_type['und'][0]['value'] =  $csv_field_thesis_type;
+						// $node->field_title_or_title_of_entry['und'][0]['value'] =  $csv_field_title_or_title_of_entry;
+						$node->field_sub_types['und'][0]['value'] =  $csv_field_sub_types;
+						$node->field_volume['und'][0]['value'] =  $csv_field_volume;
+						$node->field_full_text['und'][0]['value'] =  $csv_public_url;
+						$node->field_source['und'][0]['value'] =  $csv_source;
+						
+						$node->field_number_of_pages = $csv_field_number_of_pages;
+						$node->field_patent_number = $csv_field_patent_number;
+						$node->field_patent_status = $csv_field_patent_status;
+						$node->field_notes = $csv_field_notes;
+						$node->field_date_filed = $csv_field_date_filed; 
+						$node->field_date_awarded = $csv_feild_date_awarded;
+						
+
+						$node->language = LANGUAGE_NONE;
+						
+						// Save node
+						node_save($node);
+						$rows_imported++;
+					}
+						$data = array(); // empty the csv data array
+					
+					}else{ $csv_import_log .= "<br>Publication ".$data[0]." skipped. Author does not belong to any Research Group."; $rows_author_is_not_member++; $data = array(); } // author of the publication is not an Drupa user - skip import of this publication, do nothing.
+					
+					
+					
+	
+				$rows_correct++;
+				
+				}else { $csv_import_log .= "<br>".$data[0]." Wrong number of columns. Make sure all values are within double quotes";	$rows_corrupted++; $data = array();}
+			
+			}else { $csv_import_log .= "<br>The row begins with '".$data[0]."' which is not valid ID. All data for the publication has to be in single row: ";	$rows_corrupted++; $data = array();}
+			
+		
+			$rows_total++;
+		}
+	
+	// die("eof");
+	
+	
+	}else {	$csv_import_log = "<br>File could not be opened. Contact web support."; }
+			
+	fclose($handle); 
+	
+	drupal_set_message($csv_import_log);
+	drupal_set_message(	"Summary:<br>Total number or rows in CSV file: ".$rows_total
+	."<br>Corrupted rows: ".$rows_corrupted
+	."<br>Correct rows: ".$rows_correct
+	."<br>-Rows skipped: ".$rows_author_is_not_member."   (Email of the Author in CSV does not match email of any Person)"
+	."<br>-Rows imported: ".$rows_imported
+	."<br>--Unique publications: ".$rows_unique_publications
+	."<br>--Updated publications: ".$rows_updated_publications);
+
+	
+	
+	
+	file_put_contents("/home/kint/public_html/sites/default/files/csv/end.txt", "Summary:<br>Total number or rows in CSV file: ".$rows_total
+	."<br>Corrupted rows: ".$rows_corrupted
+	."<br>Correct rows: ".$rows_correct
+	."<br>-Rows skipped: ".$rows_author_is_not_member."   (Email of the Author in CSV does not match email of any Person)"
+	."<br>-Rows imported: ".$rows_imported
+	."<br>--Unique publications: ".$rows_unique_publications
+	."<br>--Updated publications: ".$rows_updated_publications);
+	
+	
+}
+
+
+
+function publications_csv_get_vocabulary_by_name($vocab_name) {
+  $vocabs = taxonomy_get_vocabularies(NULL);
+  foreach ($vocabs as $vocab_object) {
+    if ($vocab_object->name == $vocab_name) {
+      return $vocab_object;
+    }
+  }
+  return NULL;
+}

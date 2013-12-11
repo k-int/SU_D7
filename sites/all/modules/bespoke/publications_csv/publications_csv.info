@@ -1,0 +1,4 @@
+name = K-Int Sheffield University Publications importer
+description = Publications CSV importer
+package = K-Int
+core = 7.x

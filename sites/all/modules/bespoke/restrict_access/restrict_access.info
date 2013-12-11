@@ -1,0 +1,4 @@
+name = K-Int Sheffield University bespoke module restrict access
+description = restrict access
+package = K-Int
+core = 7.x
